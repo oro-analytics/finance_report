@@ -1,14 +1,13 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-import os
-
-from src.utils.constants import CONFIG_BOT_DIR
-from utils.utils import process_all_pl_files
+from src.utils.constants import REPORT_PATH
+from utils.utils import process_all_pl_files, save_summary_with_format
 
 
 # Параметры
 base_directory = r'\\kantar-tns.local\Project\!Methodology\Analytics\!ORG\Финансовая отчетность'
+base_directory = r'\\kantar-tns.local\Project\Финансовые_отчеты_Custom\Архив\Предыдущие периоды'
 years_to_process = [2024, 2025]
 target_pc = 'Analytics'
 
@@ -19,7 +18,6 @@ df_summary
 
 
 # Сохранение результатов
-out_path = os.path.join(CONFIG_BOT_DIR, 'summary_profit_center.xlsx')
-df_summary.to_excel(out_path, index=False)
-print(out_path)
+save_summary_with_format(df_summary, REPORT_PATH)
+print(REPORT_PATH)
 
