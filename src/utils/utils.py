@@ -2,7 +2,9 @@ import re
 from pathlib import Path
 import pandas as pd
 from openpyxl import load_workbook
-from openpyxl.styles import numbers
+
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
 
 def extract_profit_center_data(file_path: Path, target_profit_center: str):
@@ -25,7 +27,7 @@ def extract_profit_center_data(file_path: Path, target_profit_center: str):
 
         total_revenue = filtered_df["Реализация без НДС"].sum()
         total_direct_cost = filtered_df["Total Direct     Costs"].sum()
-        total_operating_сost = filtered_df["Total Operating Costs"].sum()
+        total_operating_cost = filtered_df["Total Operating Costs"].sum()
 
         return {
             "Файл": file_path.name,
@@ -34,8 +36,8 @@ def extract_profit_center_data(file_path: Path, target_profit_center: str):
             "Profit Center": target_profit_center,
             "Сумма 'Реализация без НДС'": total_revenue,
             "Сумма 'Total Direct Costs'": total_direct_cost,
-            "Сумма 'Total Operating Costs'": total_operating_сost,
-            "Operation Profit": total_revenue-total_direct_cost-total_operating_сost
+            "Сумма 'Total Operating Costs'": total_operating_cost,
+            "Operation Profit": total_revenue-total_direct_cost-total_operating_cost
         }
     except Exception as e:
         return {
