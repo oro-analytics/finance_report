@@ -1,9 +1,10 @@
 import re
+import warnings
 from pathlib import Path
+
 import pandas as pd
 from openpyxl import load_workbook
 
-import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
 
@@ -48,6 +49,81 @@ def extract_profit_center_data(file_path: Path, target_profit_center: str):
         }
 
 
+def extract_df_with_combined_header(df2):
+    """
+        Извлекает DataFrame начиная с start_row,
+        удаляет пустые строки и колонки,
+        объединяет первые две строки в заголовок.
+        """
+
+    # Получаем первые две строки
+    header_1 = df2.iloc[0].astype(str).str.strip()
+    header_2 = df2.iloc[1].astype(str).str.strip()
+
+    # Объединяем заголовки: если в первой строке пусто, берём из второй
+    combined_header = [
+        h1 if h1 and h1.lower() != 'nan' else h2
+        for h1, h2 in zip(header_1, header_2)
+    ]
+
+    df2.columns = combined_header
+    df2 = df2.iloc[2:]  # удаляем строки, которые пошли в заголовки
+    df2 = df2.reset_index(drop=True)
+    df2 = df2[df2['Profit Center'].notna()]
+    return df2
+
+
+def extract_x_charge_data(file_path: Path, target_profit_center: str):
+    try:
+        df_full = pd.read_excel(file_path, sheet_name="Secured Rev - Profit centers", header=None)
+
+        # Пример: первый DataFrame — строки 0 по 9, второй — строки 11 по 20
+        df1 = df_full.iloc[0:16].dropna(how='all')  # убираем пустые строки
+        df1.columns = df1.iloc[0]  # если первая строка — заголовки
+        df1 = df1[1:]
+        df1 = df1.dropna(axis=1, how='all')
+        row_with_profit_center = df1[df1['Profit center'] == target_profit_center]
+
+        # Читаем вторую таблицу
+        df2 = extract_df_with_combined_header(df_full.iloc[22:].dropna(axis=0, how='all').dropna(axis=1, how='all'))
+
+        df2_giver = df2[df2['Profit Center'] == target_profit_center]
+        df2_taker = df2[df2[target_profit_center] > 0]
+
+        if not df2_giver.empty:
+            print(f"\t Для {target_profit_center} найдены X-charge, которые надо ОТДАТЬ:")
+            print(df2_giver)
+
+        if not df2_taker.empty:
+            print(f"\t Для {target_profit_center} найдены X-charge, которые надо ДОБАВИТЬ:")
+            print(df2_taker[['Profit Center', 'Компания', 'Номер контракта',
+                             'Сумма контракта без НДС', 'Дата начала контракта',
+                             'Дата завершения контракта', target_profit_center
+                             ]].T)
+
+        # Извлекаем месяц из названия файла: PL_02 2025.xlsx -> 02
+        match = re.search(r"Secured Rev_Profit centers_(\d{2})", file_path.stem)
+        month = int(match.group(1)) if match else None
+        year = int(file_path.parent.name)
+
+        row_with_profit_center = (
+            row_with_profit_center.copy().assign(
+                Файл=file_path.name,
+                Год=year,
+                Месяц=month
+            )
+        ).reset_index(drop=True)
+
+        return row_with_profit_center, df2_giver, df2_taker
+    except Exception as e:
+        return {
+            "Файл": file_path.name,
+            "Год": file_path.parent.name,
+            "Месяц": None,
+            "Ошибка": str(e)
+        }
+
+
 def process_all_pl_files(base_dir: str, years: list, target_profit_center: str):
     results = []
 
@@ -62,6 +138,22 @@ def process_all_pl_files(base_dir: str, years: list, target_profit_center: str):
             results.append(result)
 
     return pd.DataFrame(results)
+
+
+def process_all_x_charge_files(base_dir: str, years: list, target_profit_center: str):
+    results = []
+
+    for year in years:
+        year_path = Path(base_dir) / str(year)
+        if not year_path.exists():
+            continue
+
+        for file in sorted(year_path.glob("Secured Rev_Profit centers_*.xlsx")):
+            print(f"Working with {file}")
+            result, df2_giver, df2_taker = extract_x_charge_data(file, target_profit_center)
+            results.append(result)
+
+    return pd.concat(results)
 
 
 def save_summary_with_format(df, output_path):
