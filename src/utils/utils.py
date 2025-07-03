@@ -88,7 +88,10 @@ def extract_x_charge_data(file_path: Path, target_profit_center: str):
         df2 = extract_df_with_combined_header(df_full.iloc[22:].dropna(axis=0, how='all').dropna(axis=1, how='all'))
 
         df2_giver = df2[df2['Profit Center'] == target_profit_center]
-        df2_taker = df2[df2[target_profit_center] > 0]
+        if target_profit_center in df2.columns:
+            df2_taker = df2[df2[target_profit_center] > 0]
+        else:
+            print(f"\t Для {target_profit_center} НЕ найдены X-charge, которые надо ДОБАВИТЬ")
 
         if not df2_giver.empty:
             print(f"\t Для {target_profit_center} найдены X-charge, которые надо ОТДАТЬ:")
@@ -116,12 +119,13 @@ def extract_x_charge_data(file_path: Path, target_profit_center: str):
 
         return row_with_profit_center, df2_giver, df2_taker
     except Exception as e:
+        print(e)
         return {
             "Файл": file_path.name,
             "Год": file_path.parent.name,
             "Месяц": None,
             "Ошибка": str(e)
-        }
+        }, pd.DataFrame(), pd.DataFrame()
 
 
 def process_all_pl_files(base_dir: str, years: list, target_profit_center: str):
@@ -150,7 +154,11 @@ def process_all_x_charge_files(base_dir: str, years: list, target_profit_center:
 
         for file in sorted(year_path.glob("Secured Rev_Profit centers_*.xlsx")):
             print(f"Working with {file}")
-            result, df2_giver, df2_taker = extract_x_charge_data(file, target_profit_center)
+            data = extract_x_charge_data(file, target_profit_center)
+            print(len(data))
+            if len(data) == 4:
+                print()
+            result, df2_giver, df2_taker = data[0], data[1], data[2]
             results.append(result)
 
     return pd.concat(results)
