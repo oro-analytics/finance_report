@@ -5,36 +5,41 @@ from pathlib import Path
 import pandas as pd
 from openpyxl import load_workbook
 
+from src.utils.get_headers import pl_header, secured_rev_header
+
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
 
 def extract_profit_center_data(file_path: Path, target_profit_center: str):
     try:
-        df = pd.read_excel(file_path, sheet_name="pl_projects")
-
-        # Отбрасываем строки без Profit Center
-        df_cleaned = df[df["Profit Center"].notna()]
-
-        # Фильтрация по заданному Profit Center и непустой колонке "Реализация без НДС"
-        filtered_df = df_cleaned[
-            (df_cleaned["Profit Center"] == target_profit_center) &
-            (df_cleaned["Реализация без НДС"].notna())
-        ]
-
         # Извлекаем месяц из названия файла: PL_02 2025.xlsx -> 02
         match = re.search(r"PL_(\d{2})", file_path.stem)
         month = int(match.group(1)) if match else None
         year = int(file_path.parent.name)
 
+        df = pd.read_excel(file_path, sheet_name="pl_projects")
+
+        # Отбрасываем строки без Profit Center
+        df_cleaned = df[df[pl_header(year, month)["Profit Center"]].notna()]
+
+        # в разных годах заполнено по разному
+        target_pc = secured_rev_header(year, month)[target_profit_center]
+
+        # Фильтрация по заданному Profit Center и непустой колонке "Реализация без НДС"
+        filtered_df = df_cleaned[
+            (df_cleaned[pl_header(year, month)["Profit Center"]] == target_pc) &
+            (df_cleaned["Реализация без НДС"].notna())
+        ]
+
         total_revenue = filtered_df["Реализация без НДС"].sum()
-        total_direct_cost = filtered_df["Total Direct     Costs"].sum()
-        total_operating_cost = filtered_df["Total Operating Costs"].sum()
+        total_direct_cost = filtered_df[pl_header(year, month)["Total Direct Costs"]].sum()
+        total_operating_cost = filtered_df[pl_header(year, month)["Total Operating Costs"]].sum()
 
         return {
             "Файл": file_path.name,
             "Год": year,
             "Месяц": month,
-            "Profit Center": target_profit_center,
+            "Profit Center": target_pc,
             "Сумма 'Реализация без НДС'": total_revenue,
             "Сумма 'Total Direct Costs'": total_direct_cost,
             "Сумма 'Total Operating Costs'": total_operating_cost,
@@ -75,22 +80,32 @@ def extract_df_with_combined_header(df2):
 
 def extract_x_charge_data(file_path: Path, target_profit_center: str):
     try:
+        # Извлекаем месяц из названия файла: PL_02 2025.xlsx -> 02
+        match = re.search(r"Secured Rev_Profit centers_(\d{2})", file_path.stem)
+        month = int(match.group(1)) if match else None
+        year = int(file_path.parent.name)
+
+        #
         df_full = pd.read_excel(file_path, sheet_name="Secured Rev - Profit centers", header=None)
+
+        # в разных годах заполнено по разному
+        target_pc = secured_rev_header(year, month)[target_profit_center]
 
         # Пример: первый DataFrame — строки 0 по 9, второй — строки 11 по 20
         df1 = df_full.iloc[0:16].dropna(how='all')  # убираем пустые строки
         df1.columns = df1.iloc[0]  # если первая строка — заголовки
         df1 = df1[1:]
         df1 = df1.dropna(axis=1, how='all')
-        row_with_profit_center = df1[df1['Profit center'] == target_profit_center]
+        row_with_profit_center = df1[df1['Profit center'] == target_pc]
 
         # Читаем вторую таблицу
         df2 = extract_df_with_combined_header(df_full.iloc[22:].dropna(axis=0, how='all').dropna(axis=1, how='all'))
 
-        df2_giver = df2[df2['Profit Center'] == target_profit_center]
-        if target_profit_center in df2.columns:
-            df2_taker = df2[df2[target_profit_center] > 0]
+        df2_giver = df2[df2['Profit Center'] == target_pc]
+        if target_pc in df2.columns:
+            df2_taker = df2[df2[target_pc] > 0]
         else:
+            df2_taker = pd.DataFrame()
             print(f"\t Для {target_profit_center} НЕ найдены X-charge, которые надо ДОБАВИТЬ")
 
         if not df2_giver.empty:
@@ -104,11 +119,6 @@ def extract_x_charge_data(file_path: Path, target_profit_center: str):
                              'Дата завершения контракта', target_profit_center
                              ]].T)
 
-        # Извлекаем месяц из названия файла: PL_02 2025.xlsx -> 02
-        match = re.search(r"Secured Rev_Profit centers_(\d{2})", file_path.stem)
-        month = int(match.group(1)) if match else None
-        year = int(file_path.parent.name)
-
         row_with_profit_center = (
             row_with_profit_center.copy().assign(
                 Файл=file_path.name,
@@ -119,13 +129,13 @@ def extract_x_charge_data(file_path: Path, target_profit_center: str):
 
         return row_with_profit_center, df2_giver, df2_taker
     except Exception as e:
-        print(e)
-        return {
+        print(f"ошибка: {e}")
+        return pd.DataFrame({
             "Файл": file_path.name,
             "Год": file_path.parent.name,
             "Месяц": None,
             "Ошибка": str(e)
-        }, pd.DataFrame(), pd.DataFrame()
+        }), pd.DataFrame(), pd.DataFrame()
 
 
 def process_all_pl_files(base_dir: str, years: list, target_profit_center: str):

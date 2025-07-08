@@ -14,7 +14,7 @@ target_pc = 'Analytics'
 
 # Обработка файлов - 'Реализация без НДС', 'Total Direct Costs', 'Total Operating Costs', Operation Profit
 print("Обработка файлов - 'Реализация без НДС', 'Total Direct Costs', 'Total Operating Costs', Operation Profit")
-print("Реализация - "
+print("INFO: Реализация - "
       "Сумма признанной выручки на момент составления P&L отчета, равна сумме контракта при 100% завершенности.")
 df_pl_summary = process_all_pl_files(base_directory, years_to_process, target_pc)
 row_with_profit_center = process_all_x_charge_files(base_directory, years_to_process, target_pc)
