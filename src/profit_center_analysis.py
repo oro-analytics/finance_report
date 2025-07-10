@@ -23,6 +23,7 @@ print(row_with_profit_center)
 df_summary = df_pl_summary.merge(row_with_profit_center, on=['Год', 'Месяц'], how='left')
 
 # Сохранение результатов
-save_summary_with_format(df_summary, REPORT_PATH % f"[{','.join([str(x) for x in years_to_process])}]")
-print(REPORT_PATH)
+report_path = REPORT_PATH % f"[{','.join([str(x) for x in years_to_process])}]"
+save_summary_with_format(df_summary, report_path)
+print(report_path)
 
