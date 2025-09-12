@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 from openpyxl import load_workbook
+from openpyxl.styles import PatternFill
 
 from src.utils.get_headers import pl_header, secured_rev_header
 
@@ -154,8 +155,21 @@ def process_all_pl_files(base_dir: str, years: list, target_profit_center: str):
     return pd.DataFrame(results)
 
 
-def process_all_x_charge_files(base_dir: str, years: list, target_profit_center: str):
-    results = []
+def process_all_x_charge_files(
+    base_dir: str,
+    years: list[int],
+    target_profit_center: str
+) -> tuple[dict, dict, dict]:
+    """
+        Обрабатывает все файлы вида Secured Rev_Profit centers_*.xlsx.
+        Возвращает три словаря:
+          results_dict[month] = result_df
+          giver_dict[month]   = giver_df
+          taker_dict[month]   = taker_df
+        где month берётся из * в имени файла.
+        """
+
+    results_dict, giver_dict, taker_dict = {}, {}, {}
 
     for year in years:
         year_path = Path(base_dir) / str(year)
@@ -164,14 +178,98 @@ def process_all_x_charge_files(base_dir: str, years: list, target_profit_center:
 
         for file in sorted(year_path.glob("Secured Rev_Profit centers_*.xlsx")):
             print(f"Working with {file}")
+
+            # достаём часть из имени файла после последнего "_"
+            # пример: "Secured Rev_Profit centers_03.xlsx" -> "03"
+            m = re.search(r"Secured Rev_Profit centers_(.+)\.xlsx", file.name)
+            if not m:
+                print(f"⚠️ не удалось вытащить номер месяца из {file.name}")
+                continue
+            month_key = m.group(1)
+
             data = extract_x_charge_data(file, target_profit_center)
             print(len(data))
-            if len(data) == 4:
-                print()
-            result, df2_giver, df2_taker = data[0], data[1], data[2]
-            results.append(result)
 
-    return pd.concat(results)
+            if len(data) < 3:
+                print(f"⚠️ неожиданный формат данных в {file.name}")
+                continue
+
+            result, df2_giver, df2_taker = data[0], data[1], data[2]
+
+            # кладём напрямую в словари
+            results_dict[month_key] = result
+            giver_dict[month_key] = df2_giver
+            taker_dict[month_key] = df2_taker
+
+    return results_dict, giver_dict, taker_dict
+
+
+def write_monthly_with_highlights(
+    dfs_dict: dict[str, pd.DataFrame],
+    output_path: str = "monthly_contracts.xlsx",
+    id_col: str = "Номер контракта",
+    highlight_first: bool = True,   # для самого первого месяца: подсвечивать все как «впервые»
+    add_flag_column: bool = True,   # добавить колонку «Новая запись?»
+) -> str:
+    """
+    dfs — словарь {ключ: DataFrame}, где ключ = месяц/период (используется как имя листа).
+    output_path — путь к итоговому Excel.
+    id_col — имя столбца-идентификатора.
+    highlight_first — подсвечивать ли весь первый месяц (всё «впервые»).
+    add_flag_column — добавлять ли текстовый флажок «Новая запись?» в таблицу.
+    На каждом листе подсвечиваются строки, где запись (по id_col) появилась впервые.
+    """
+    if not dfs_dict:
+        raise ValueError("Словарь dfs_dict пуст.")
+
+        # Отсортируем ключи (если они строки с числами, можно привести к int)
+    try:
+        ordered_keys = sorted(dfs_dict.keys(), key=lambda x: int(x))
+    except ValueError:
+        ordered_keys = sorted(dfs_dict.keys())
+
+        # Стиль подсветки (светло-зелёный)
+    green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+
+    prev_ids: set[str] = set()
+    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+        for i, key in enumerate(ordered_keys):
+            df = dfs_dict[key]
+            if id_col not in df.columns:
+                # raise KeyError(f'В DataFrame для {key} нет столбца "{id_col}"')
+                continue
+
+            df2 = df.copy()
+            df2 = df2[~df2[id_col].isna()].copy()
+            df2[id_col] = df2[id_col].astype(str).str.strip()
+            df2 = df2.drop_duplicates(subset=[id_col], keep="first")
+
+            curr_ids = df2[id_col]
+
+            if i == 0 and highlight_first:
+                new_mask = pd.Series(True, index=df2.index)
+            else:
+                new_mask = ~curr_ids.isin(prev_ids)
+
+            df_out = df2.copy()
+            if add_flag_column:
+                df_out.insert(0, "Новая запись?", new_mask.map({True: "YES", False: ""}))
+
+            # пишем лист
+            sheet_name = str(key)
+            df_out.to_excel(writer, sheet_name=sheet_name, index=False)
+            ws = writer.sheets[sheet_name]
+
+            # подсветка строк
+            ncols = df_out.shape[1]
+            for row_idx, is_new in enumerate(new_mask.tolist(), start=2):  # строки начинаются с 2
+                if is_new:
+                    for col_idx in range(1, ncols + 1):
+                        ws.cell(row=row_idx, column=col_idx).fill = green_fill
+
+            prev_ids = set(curr_ids)
+
+    return output_path
 
 
 def save_summary_with_format(df, output_path):
