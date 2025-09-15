@@ -93,7 +93,7 @@ def extract_x_charge_data(file_path: Path, target_profit_center: str):
         target_pc = secured_rev_header(year, month)[target_profit_center]
 
         # Пример: первый DataFrame — строки 0 по 9, второй — строки 11 по 20
-        df1 = df_full.iloc[0:16].dropna(how='all')  # убираем пустые строки
+        df1 = df_full.iloc[0:18].dropna(how='all')  # убираем пустые строки
         df1.columns = df1.iloc[0]  # если первая строка — заголовки
         df1 = df1[1:]
         df1 = df1.dropna(axis=1, how='all')
@@ -102,9 +102,10 @@ def extract_x_charge_data(file_path: Path, target_profit_center: str):
         # Читаем вторую таблицу
         df2 = extract_df_with_combined_header(df_full.iloc[22:].dropna(axis=0, how='all').dropna(axis=1, how='all'))
 
-        df2_giver = df2[df2['Profit Center'] == target_pc]
-        if target_pc in df2.columns:
-            df2_taker = df2[df2[target_pc] > 0]
+        df2_giver = df2[df2['Profit Center'].str.contains(target_pc, na=False)]
+        cols = [c for c in df2.columns if target_pc in c]
+        if cols:
+            df2_taker = df2[df2[cols].gt(0).any(axis=1)]
         else:
             df2_taker = pd.DataFrame()
             print(f"\t Для {target_profit_center} НЕ найдены X-charge, которые надо ДОБАВИТЬ")
@@ -117,8 +118,8 @@ def extract_x_charge_data(file_path: Path, target_profit_center: str):
             print(f"\t Для {target_profit_center} найдены X-charge, которые надо ДОБАВИТЬ:")
             print(df2_taker[['Profit Center', 'Компания', 'Номер контракта',
                              'Сумма контракта без НДС', 'Дата начала контракта',
-                             'Дата завершения контракта', target_profit_center
-                             ]].T)
+                             'Дата завершения контракта'] + cols
+                             ].T)
 
         row_with_profit_center = (
             row_with_profit_center.copy().assign(
@@ -188,8 +189,6 @@ def process_all_x_charge_files(
             month_key = m.group(1)
 
             data = extract_x_charge_data(file, target_profit_center)
-            print(len(data))
-
             if len(data) < 3:
                 print(f"⚠️ неожиданный формат данных в {file.name}")
                 continue

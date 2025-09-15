@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
+import pandas as pd
 
 from src.utils.constants import REPORT_PATH
 from utils.utils import process_all_pl_files, process_all_x_charge_files, save_summary_with_format, \
@@ -46,9 +47,11 @@ print("Готово:", result_path)
 
 # Общий
 report_path = report_common_name
-df_summary = df_pl_summary.merge([row_with_profit_center_dict[k] for k in row_with_profit_center_dict],
-                                 on=['Год', 'Месяц'], how='left')
-
+df_all = pd.concat(
+    [row_with_profit_center_dict[k] for k in row_with_profit_center_dict],
+    ignore_index=True
+)
+df_summary = df_pl_summary.merge(df_all, on=['Год', 'Месяц'], how='left')
 save_summary_with_format(df_summary, report_path)
 print(report_path)
 print(f"Chargeability суммарный за год во вкладке `Chargeability_отчет` файла PL_XX {max(years_to_process)}.xlsx")
