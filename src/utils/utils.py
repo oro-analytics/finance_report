@@ -100,7 +100,22 @@ def extract_x_charge_data(file_path: Path, target_profit_center: str):
         row_with_profit_center = df1[df1['Profit center'] == target_pc]
 
         # Читаем вторую таблицу
-        df2 = extract_df_with_combined_header(df_full.iloc[22:].dropna(axis=0, how='all').dropna(axis=1, how='all'))
+        # --- Находим строку начала X-charge автоматически ---
+        xcharge_start_row = None
+        for i, row in df_full.iterrows():
+            if re.search(r"X.?charge", str(row[0]), flags=re.IGNORECASE):
+                xcharge_start_row = i
+                break
+
+        if xcharge_start_row is None:
+            raise ValueError("❌ Не найдена строка начала X-charge. Проверьте содержимое файла.")
+
+        # --- Отрезаем начиная с найденной строки ---
+        xcharge_table_start_row = xcharge_start_row + 2
+        df2 = df_full.iloc[xcharge_table_start_row:].dropna(axis=0, how='all').dropna(axis=1, how='all')
+
+        # Обрабатываем таблицу как раньше
+        df2 = extract_df_with_combined_header(df2)
 
         df2_giver = df2[df2['Profit Center'].str.contains(target_pc, na=False)]
         cols = [c for c in df2.columns if target_pc in c]
