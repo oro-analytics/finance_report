@@ -142,7 +142,7 @@ def extract_x_charge_data(file_path: Path, target_profit_center: str):
             print(df2_giver)
 
         if not df2_taker.empty:
-            print(f"\t Для {target_profit_center} найдены X-charge, которые надо ДОБАВИТЬ:")
+            print(f"### \t Для {target_profit_center} найдены X-charge, которые надо ДОБАВИТЬ:")
             print(df2_taker[['Profit Center', 'Компания', 'Номер контракта',
                              'Сумма контракта без НДС', 'Дата начала контракта',
                              'Дата завершения контракта'] + cols
@@ -182,7 +182,7 @@ def process_all_pl_files(base_dir: str, years: list, target_profit_center: str):
             results.append(summary)
 
             if not filtered_df.empty and summary.get("Месяц"):
-                month_key = f"{int(summary['Месяц']):02d}"
+                month_key = f"{int(summary['Месяц']):02d} {year}"
                 monthly_projects[month_key] = filtered_df
 
     return pd.DataFrame(results), monthly_projects
