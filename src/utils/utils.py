@@ -36,7 +36,17 @@ def extract_profit_center_data(file_path: Path, target_profit_center: str):
         total_direct_cost = filtered_df[pl_header(year, month)["Total Direct Costs"]].sum()
         total_operating_cost = filtered_df[pl_header(year, month)["Total Operating Costs"]].sum()
 
-        return {
+        filtered_df_out = filtered_df.copy()
+        filtered_df_out["Год"] = year
+        filtered_df_out["Месяц"] = month
+        filtered_df_out["Источник файла"] = file_path.name
+
+        # сохраняем название профит-центра из справочника в отдельной колонке
+        profit_center_column = pl_header(year, month)["Profit Center"]
+        if profit_center_column in filtered_df_out.columns:
+            filtered_df_out["Название Profit Center"] = filtered_df_out[profit_center_column]
+
+        summary_row = {
             "Файл": file_path.name,
             "Год": year,
             "Месяц": month,
@@ -44,15 +54,17 @@ def extract_profit_center_data(file_path: Path, target_profit_center: str):
             "Сумма 'Реализация без НДС'": total_revenue,
             "Сумма 'Total Direct Costs'": total_direct_cost,
             "Сумма 'Total Operating Costs'": total_operating_cost,
-            "Operation Profit": total_revenue-total_direct_cost-total_operating_cost
+            "Operation Profit": total_revenue - total_direct_cost - total_operating_cost
         }
+
+        return summary_row, filtered_df_out
     except Exception as e:
         return {
             "Файл": file_path.name,
             "Год": file_path.parent.name,
             "Месяц": None,
             "Ошибка": str(e)
-        }
+        }, pd.DataFrame()
 
 
 def extract_df_with_combined_header(df2):
@@ -157,6 +169,7 @@ def extract_x_charge_data(file_path: Path, target_profit_center: str):
 
 def process_all_pl_files(base_dir: str, years: list, target_profit_center: str):
     results = []
+    monthly_projects: dict[str, pd.DataFrame] = {}
 
     for year in years:
         year_path = Path(base_dir) / str(year)
@@ -165,10 +178,14 @@ def process_all_pl_files(base_dir: str, years: list, target_profit_center: str):
 
         for file in sorted(year_path.glob("PL_*.xlsx")):
             print(f"Working with {file}")
-            result = extract_profit_center_data(file, target_profit_center)
-            results.append(result)
+            summary, filtered_df = extract_profit_center_data(file, target_profit_center)
+            results.append(summary)
 
-    return pd.DataFrame(results)
+            if not filtered_df.empty and summary.get("Месяц"):
+                month_key = f"{int(summary['Месяц']):02d}"
+                monthly_projects[month_key] = filtered_df
+
+    return pd.DataFrame(results), monthly_projects
 
 
 def process_all_x_charge_files(
