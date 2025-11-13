@@ -250,6 +250,9 @@ def write_monthly_with_highlights(
     add_flag_column — добавлять ли текстовый флажок «Новая запись?» в таблицу.
     На каждом листе подсвечиваются строки, где запись (по id_col) появилась впервые.
     """
+    def _normalize_for_compare(frame: pd.DataFrame) -> pd.DataFrame:
+        return frame.map(lambda value: "" if pd.isna(value) else str(value))
+
     if not dfs_dict:
         raise ValueError("Словарь dfs_dict пуст.")
 
@@ -309,8 +312,8 @@ def write_monthly_with_highlights(
                             .sort_index()
                         )
 
-                        curr_norm = curr_subset.fillna("").applymap(str)
-                        prev_norm = prev_subset.fillna("").applymap(str)
+                        curr_norm = _normalize_for_compare(curr_subset)
+                        prev_norm = _normalize_for_compare(prev_subset)
 
                         changed_series = (curr_norm != prev_norm).any(axis=1)
                         changed_ids = set(changed_series[changed_series].index)
@@ -321,11 +324,10 @@ def write_monthly_with_highlights(
                 deleted_row_ids = deleted_ids_only | changed_ids
 
                 if deleted_row_ids and prev_df is not None:
-                    deleted_rows_df = (
-                        prev_df[prev_df[id_col].isin(deleted_row_ids)]
-                        .copy()
-                        .reindex(columns=df2.columns, fill_value="")
-                    )
+                    deleted_rows_df = prev_df[prev_df[id_col].isin(deleted_row_ids)].copy()
+                    for column in df2.columns:
+                        if column not in deleted_rows_df.columns:
+                            deleted_rows_df[column] = ""
 
             df_out = df2.copy()
             if add_flag_column:
