@@ -250,6 +250,9 @@ def write_monthly_with_highlights(
     add_flag_column — добавлять ли текстовый флажок «Новая запись?» в таблицу.
     На каждом листе подсвечиваются строки, где запись (по id_col) появилась впервые.
     """
+    def _normalize_for_compare(frame: pd.DataFrame) -> pd.DataFrame:
+        return frame.map(lambda value: "" if pd.isna(value) else str(value))
+
     if not dfs_dict:
         raise ValueError("Словарь dfs_dict пуст.")
 
@@ -261,8 +264,10 @@ def write_monthly_with_highlights(
 
         # Стиль подсветки (светло-зелёный)
     green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+    red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
 
     prev_ids: set[str] = set()
+    prev_df: pd.DataFrame | None = None
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         for i, key in enumerate(ordered_keys):
             df = dfs_dict[key]
@@ -276,15 +281,75 @@ def write_monthly_with_highlights(
             df2 = df2.drop_duplicates(subset=[id_col], keep="first")
 
             curr_ids = df2[id_col]
+            curr_ids_set = set(curr_ids)
+
+            changed_ids: set[str] = set()
+            deleted_rows_df = pd.DataFrame()
 
             if i == 0 and highlight_first:
                 new_mask = pd.Series(True, index=df2.index)
             else:
-                new_mask = ~curr_ids.isin(prev_ids)
+                new_ids = curr_ids_set - prev_ids
+                common_ids = curr_ids_set & prev_ids
+
+                if prev_df is not None and common_ids:
+                    common_columns = [
+                        col for col in df2.columns
+                        if col in prev_df.columns and col != id_col
+                    ]
+
+                    if common_columns:
+                        common_ids_sorted = sorted(common_ids)
+
+                        curr_subset = (
+                            df2.set_index(id_col)
+                            .loc[common_ids_sorted, common_columns]
+                            .sort_index()
+                        )
+                        prev_subset = (
+                            prev_df.set_index(id_col)
+                            .loc[common_ids_sorted, common_columns]
+                            .sort_index()
+                        )
+
+                        curr_norm = _normalize_for_compare(curr_subset)
+                        prev_norm = _normalize_for_compare(prev_subset)
+
+                        changed_series = (curr_norm != prev_norm).any(axis=1)
+                        changed_ids = set(changed_series[changed_series].index)
+
+                new_mask = curr_ids.isin(new_ids | changed_ids)
+
+                deleted_ids_only = prev_ids - curr_ids_set
+                deleted_row_ids = deleted_ids_only | changed_ids
+
+                if deleted_row_ids and prev_df is not None:
+                    deleted_rows_df = prev_df[prev_df[id_col].isin(deleted_row_ids)].copy()
+                    for column in df2.columns:
+                        if column not in deleted_rows_df.columns:
+                            deleted_rows_df[column] = ""
 
             df_out = df2.copy()
             if add_flag_column:
-                df_out.insert(0, "Новая запись?", new_mask.map({True: "YES", False: ""}))
+                df_out.insert(0, "Новая запись?", "")
+
+            status_series = pd.Series("", index=df2.index, dtype=object)
+            status_series.loc[new_mask] = "NEW"
+
+            if add_flag_column:
+                df_out.loc[:, "Новая запись?"] = status_series
+
+            if not deleted_rows_df.empty:
+                if add_flag_column:
+                    deleted_rows_df.insert(0, "Новая запись?", "DELETED")
+                df_out = pd.concat([df_out, deleted_rows_df], ignore_index=True, sort=False)
+
+            statuses_list = status_series.tolist()
+            if not deleted_rows_df.empty:
+                statuses_list.extend(["DELETED"] * len(deleted_rows_df))
+
+            if add_flag_column:
+                df_out["Новая запись?"] = df_out["Новая запись?"].fillna("")
 
             # пишем лист
             sheet_name = str(key)
@@ -293,12 +358,19 @@ def write_monthly_with_highlights(
 
             # подсветка строк
             ncols = df_out.shape[1]
-            for row_idx, is_new in enumerate(new_mask.tolist(), start=2):  # строки начинаются с 2
-                if is_new:
-                    for col_idx in range(1, ncols + 1):
-                        ws.cell(row=row_idx, column=col_idx).fill = green_fill
+            for row_idx, status in enumerate(statuses_list, start=2):
+                if status == "NEW":
+                    fill = green_fill
+                elif status == "DELETED":
+                    fill = red_fill
+                else:
+                    continue
 
-            prev_ids = set(curr_ids)
+                for col_idx in range(1, ncols + 1):
+                    ws.cell(row=row_idx, column=col_idx).fill = fill
+
+            prev_ids = curr_ids_set
+            prev_df = df2.copy()
 
     return output_path
 
