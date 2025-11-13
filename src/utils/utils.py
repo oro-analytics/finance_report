@@ -342,6 +342,24 @@ def write_monthly_with_highlights(
             if not deleted_rows_df.empty:
                 if add_flag_column:
                     deleted_rows_df.insert(0, "Новая запись?", "DELETED")
+
+                # Убедимся, что оба DataFrame содержат одинаковые столбцы (учитывая возможные
+                # столбцы из предыдущего месяца) и одинаковый порядок столбцов. При наличии
+                # дубликатов имён используем .loc, т.к. reindex требует уникальных меток.
+                extra_cols_for_out = [
+                    column for column in deleted_rows_df.columns if column not in df_out.columns
+                ]
+                for column in extra_cols_for_out:
+                    df_out[column] = ""
+
+                missing_in_deleted = [
+                    column for column in df_out.columns if column not in deleted_rows_df.columns
+                ]
+                for column in missing_in_deleted:
+                    deleted_rows_df[column] = ""
+
+                deleted_rows_df = deleted_rows_df.loc[:, df_out.columns]
+
                 df_out = pd.concat([df_out, deleted_rows_df], ignore_index=True, sort=False)
 
             statuses_list = status_series.tolist()
