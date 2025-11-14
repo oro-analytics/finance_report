@@ -248,26 +248,33 @@ def write_monthly_with_highlights(
     id_col — имя столбца-идентификатора.
     highlight_first — подсвечивать ли весь первый месяц (всё «впервые»).
     add_flag_column — добавлять ли текстовый флажок «Новая запись?» в таблицу.
-    На каждом листе подсвечиваются строки, где запись (по id_col) появилась впервые.
+
+    На каждом листе:
+      NEW       — запись появилась впервые (строка подсвечивается зелёным)
+      MODIFIED  — запись была ранее, но её поля изменились (жёлтым подсвечиваются только изменённые ячейки)
+      DELETED   — запись исчезла по сравнению с прошлым месяцем (строка подсвечивается красным)
     """
+
     def _normalize_for_compare(frame: pd.DataFrame) -> pd.DataFrame:
         return frame.map(lambda value: "" if pd.isna(value) else str(value))
 
     if not dfs_dict:
         raise ValueError("Словарь dfs_dict пуст.")
 
-        # Отсортируем ключи (если они строки с числами, можно привести к int)
+    # Отсортируем ключи (если они строки с числами, можно привести к int)
     try:
         ordered_keys = sorted(dfs_dict.keys(), key=lambda x: int(x))
     except ValueError:
         ordered_keys = sorted(dfs_dict.keys())
 
-        # Стиль подсветки (светло-зелёный)
+    # Стиль подсветки
     green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
     red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+    yellow_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")  # ### для MODIFIED
 
     prev_ids: set[str] = set()
     prev_df: pd.DataFrame | None = None
+
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         for i, key in enumerate(ordered_keys):
             df = dfs_dict[key]
@@ -285,9 +292,12 @@ def write_monthly_with_highlights(
 
             changed_ids: set[str] = set()
             deleted_rows_df = pd.DataFrame()
+            changed_cells: dict[str, set[str]] = {}  # ### id -> набор изменённых колонок
 
             if i == 0 and highlight_first:
+                # В первый месяц всё считаем "новым"
                 new_mask = pd.Series(True, index=df2.index)
+                modified_mask = pd.Series(False, index=df2.index)  # ### нет модифицированных
             else:
                 new_ids = curr_ids_set - prev_ids
                 common_ids = curr_ids_set & prev_ids
@@ -315,37 +325,50 @@ def write_monthly_with_highlights(
                         curr_norm = _normalize_for_compare(curr_subset)
                         prev_norm = _normalize_for_compare(prev_subset)
 
-                        changed_series = (curr_norm != prev_norm).any(axis=1)
+                        diff_df = curr_norm != prev_norm  # ### поэлементные отличия
+                        changed_series = diff_df.any(axis=1)
                         changed_ids = set(changed_series[changed_series].index)
 
-                new_mask = curr_ids.isin(new_ids | changed_ids)
+                        # ### Сохраняем по id список изменённых колонок
+                        for _id in changed_ids:
+                            changed_cols = set(diff_df.columns[diff_df.loc[_id]])
+                            if changed_cols:
+                                changed_cells[_id] = changed_cols
 
+                # NEW — только новые id
+                new_mask = curr_ids.isin(new_ids)
+                # MODIFIED — id, которые были и поменялись
+                modified_mask = curr_ids.isin(changed_ids)
+
+                # DELETED — только реально исчезнувшие
                 deleted_ids_only = prev_ids - curr_ids_set
-                deleted_row_ids = deleted_ids_only | changed_ids
 
-                if deleted_row_ids and prev_df is not None:
-                    deleted_rows_df = prev_df[prev_df[id_col].isin(deleted_row_ids)].copy()
+                if deleted_ids_only and prev_df is not None:
+                    deleted_rows_df = prev_df[prev_df[id_col].isin(deleted_ids_only)].copy()
+
                     for column in df2.columns:
                         if column not in deleted_rows_df.columns:
                             deleted_rows_df[column] = ""
 
+            # Собираем итоговый DataFrame для листа
             df_out = df2.copy()
             if add_flag_column:
                 df_out.insert(0, "Новая запись?", "")
 
+            # Статусы по строкам текущего месяца
             status_series = pd.Series("", index=df2.index, dtype=object)
             status_series.loc[new_mask] = "NEW"
+            status_series.loc[modified_mask] = "MODIFIED"  # ### новые статусы
 
             if add_flag_column:
                 df_out.loc[:, "Новая запись?"] = status_series
 
+            # Добавляем удалённые строки (из предыдущего месяца)
             if not deleted_rows_df.empty:
                 if add_flag_column:
                     deleted_rows_df.insert(0, "Новая запись?", "DELETED")
 
-                # Убедимся, что оба DataFrame содержат одинаковые столбцы (учитывая возможные
-                # столбцы из предыдущего месяца) и одинаковый порядок столбцов. При наличии
-                # дубликатов имён используем .loc, т.к. reindex требует уникальных меток.
+                # Синхронизируем набор и порядок колонок
                 extra_cols_for_out = [
                     column for column in deleted_rows_df.columns if column not in df_out.columns
                 ]
@@ -359,9 +382,9 @@ def write_monthly_with_highlights(
                     deleted_rows_df[column] = ""
 
                 deleted_rows_df = deleted_rows_df.loc[:, df_out.columns]
-
                 df_out = pd.concat([df_out, deleted_rows_df], ignore_index=True, sort=False)
 
+            # Формируем список статусов в порядке строк df_out
             statuses_list = status_series.tolist()
             if not deleted_rows_df.empty:
                 statuses_list.extend(["DELETED"] * len(deleted_rows_df))
@@ -369,23 +392,41 @@ def write_monthly_with_highlights(
             if add_flag_column:
                 df_out["Новая запись?"] = df_out["Новая запись?"].fillna("")
 
-            # пишем лист
+            # Пишем лист
             sheet_name = str(key)
             df_out.to_excel(writer, sheet_name=sheet_name, index=False)
             ws = writer.sheets[sheet_name]
 
-            # подсветка строк
             ncols = df_out.shape[1]
-            for row_idx, status in enumerate(statuses_list, start=2):
-                if status == "NEW":
-                    fill = green_fill
-                elif status == "DELETED":
-                    fill = red_fill
-                else:
-                    continue
+            id_list = df2[id_col].tolist()  # ### id только для «текущих» строк
 
-                for col_idx in range(1, ncols + 1):
-                    ws.cell(row=row_idx, column=col_idx).fill = fill
+            # Подсветка строк / ячеек
+            for row_idx, status in enumerate(statuses_list, start=2):
+                # индекс относительно текущего месяца
+                idx_in_current = row_idx - 2
+
+                if status == "NEW":
+                    # подсветка всей строки зелёным
+                    for col_idx in range(1, ncols + 1):
+                        ws.cell(row=row_idx, column=col_idx).fill = green_fill
+
+                elif status == "MODIFIED":
+                    # ### подсвечиваем только изменённые ячейки жёлтым
+                    if 0 <= idx_in_current < len(id_list):
+                        row_id = id_list[idx_in_current]
+                        changed_cols_for_id = changed_cells.get(row_id, set())
+                        if changed_cols_for_id:
+                            for col_idx in range(1, ncols + 1):
+                                col_name = df_out.columns[col_idx - 1]
+                                if col_name in changed_cols_for_id:
+                                    ws.cell(row=row_idx, column=col_idx).fill = yellow_fill
+
+                elif status == "DELETED":
+                    # подсветка всей строки красным
+                    for col_idx in range(1, ncols + 1):
+                        ws.cell(row=row_idx, column=col_idx).fill = red_fill
+
+                # остальные статусы (пустые) — без подсветки
 
             prev_ids = curr_ids_set
             prev_df = df2.copy()
@@ -401,29 +442,68 @@ def save_summary_with_format(df, output_path):
     wb = load_workbook(output_path)
     ws = wb.active
 
-    # Поиск нужных колонок
+    # Заголовки
     headers = [cell.value for cell in ws[1]]
+    header_index = {name: idx + 1 for idx, name in enumerate(headers)}
+
+    # -----------------------------
+    # 1) ПРОЦЕНТНЫЕ КОЛОНКИ xx.x%
+    # -----------------------------
+    percent_columns = [
+        "% Завершенности проекта",
+        "% прибыли"
+    ]
+
+    percent_format = "0.0%"  # один знак после запятой
+
+    for col_name in percent_columns:
+        if col_name in header_index:
+            col = header_index[col_name]
+            for cell in ws.iter_rows(min_row=2, min_col=col, max_col=col):
+                for c in cell:
+                    c.number_format = percent_format
+
+    # ------------------------------------------------------------
+    # 2) ФИНАНСОВЫЕ КОЛОНКИ (xxx xxx без десятичных, рубли)
+    # ------------------------------------------------------------
     money_columns = [
+        "Реализация без НДС",
+        "Чистые продажи",
+        "Прибыль",
+        "Расходы подрядчиков",
+        "Расходы CATI по проектам",
+        "Заработная плата по проектам (ГПХ)",
+        "Материалы, лицензии и аренда помещений по проектам",
+        "Командировки по проектам",
+        "Отправка посылок по проектам",
+        "Межгород по проектам",
+        "Итого прямые расходы",
+        "Timesheets",
+        "CATI/Онлайн панель overheads",
+        "Корректировка",
+        "Итого операционные расходы",
+        # старые summary-колонки тоже оставляем
         "Сумма 'Реализация без НДС'",
         "Сумма 'Total Direct Costs'",
         "Сумма 'Total Operating Costs'",
         "Operation Profit"
     ]
 
-    # Финансовый формат в рублях (с пробелами и запятыми)
-    rub_format = '#,##0 ₽'  # Здесь между # и ##0 — не обычный пробел, а неразрывный (U+00A0)
+    # между # и ##0 тут — НЕРАЗРЫВНЫЙ ПРОБЕЛ (U+00A0)
+    rub_format = '# ##0'   # без копеек
 
     for col_name in money_columns:
-        if col_name in headers:
-            col_idx = headers.index(col_name) + 1  # Excel columns start at 1
-            col_letter = ws.cell(row=1, column=col_idx).column_letter
+        if col_name in header_index:
+            col = header_index[col_name]
+            col_letter = ws.cell(row=1, column=col).column_letter
 
-            # Устанавливаем ширину столбца
+            # Ширина столбца
             ws.column_dimensions[col_letter].width = 18
 
-            # Применяем формат к значениям
-            for row in ws.iter_rows(min_row=2, min_col=col_idx, max_col=col_idx):
-                for cell in row:
-                    cell.number_format = rub_format  # Финансовый формат
+            # Форматирование значений
+            for cell in ws.iter_rows(min_row=2, min_col=col, max_col=col):
+                for c in cell:
+                    c.number_format = rub_format
 
     wb.save(output_path)
+
