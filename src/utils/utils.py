@@ -397,6 +397,68 @@ def write_monthly_with_highlights(
             df_out.to_excel(writer, sheet_name=sheet_name, index=False)
             ws = writer.sheets[sheet_name]
 
+            # --- ФОРМАТИРОВАНИЕ ПРОЦЕНТОВ И ФИНАНСОВ ---
+            headers = [cell.value for cell in ws[1]]
+            header_index = {name: idx + 1 for idx, name in enumerate(headers)}
+
+            # 1) Процентные колонки
+            percent_columns = [
+                "% Завершенности проекта",
+                "% валовая маржинальность",
+                "% прибыли"
+            ]
+            percent_format = "0.0%"
+
+            for col_name in percent_columns:
+                if col_name in header_index:
+                    col = header_index[col_name]
+                    for cell in ws.iter_rows(min_row=2, min_col=col, max_col=col):
+                        for c in cell:
+                            c.number_format = percent_format
+
+            # 2) Денежные колонки
+            money_columns = [
+                "Реализация без НДС",
+                "Чистые продажи",
+                "Прибыль",
+                "Unnamed: 18",
+                "Расходы подрядчиков",
+                "Расходы CATI по проектам",
+                "Заработная плата по проектам (ГПХ)",
+                "Материалы, лицензии и аренда помещений по проектам",
+                "Командировки по проектам",
+                "Отправка посылок по проектам",
+                "Межгород по проектам",
+                "Итого прямые расходы",
+                "Unnamed: 27",
+                "Timesheets",
+                "CATI/Онлайн панель overheads",
+                "Корректировка",
+                "Итого операционные расходы",
+                # summary
+                "Сумма 'Реализация без НДС'",
+                "Сумма 'Total Direct Costs'",
+                "Сумма 'Total Operating Costs'",
+                "Operation Profit"
+            ]
+
+            rub_format = '# ##0'  # без копеек, с пробелами
+
+            for col_name in money_columns:
+                if col_name in header_index:
+                    col = header_index[col_name]
+                    col_letter = ws.cell(row=1, column=col).column_letter
+
+                    # ширина столбца
+                    ws.column_dimensions[col_letter].width = 18
+
+                    # применяем формат
+                    for cell in ws.iter_rows(min_row=2, min_col=col, max_col=col):
+                        for c in cell:
+                            c.number_format = rub_format
+
+            # --- КОНЕЦ ФОРМАТИРОВАНИЕ ПРОЦЕНТОВ И ФИНАНСОВ ---
+
             ncols = df_out.shape[1]
             id_list = df2[id_col].tolist()  # ### id только для «текущих» строк
 
@@ -450,8 +512,7 @@ def save_summary_with_format(df, output_path):
     # 1) ПРОЦЕНТНЫЕ КОЛОНКИ xx.x%
     # -----------------------------
     percent_columns = [
-        "% Завершенности проекта",
-        "% прибыли"
+        "YTD vs. Таргет",
     ]
 
     percent_format = "0.0%"  # один знак после запятой
@@ -467,26 +528,16 @@ def save_summary_with_format(df, output_path):
     # 2) ФИНАНСОВЫЕ КОЛОНКИ (xxx xxx без десятичных, рубли)
     # ------------------------------------------------------------
     money_columns = [
-        "Реализация без НДС",
-        "Чистые продажи",
-        "Прибыль",
-        "Расходы подрядчиков",
-        "Расходы CATI по проектам",
-        "Заработная плата по проектам (ГПХ)",
-        "Материалы, лицензии и аренда помещений по проектам",
-        "Командировки по проектам",
-        "Отправка посылок по проектам",
-        "Межгород по проектам",
-        "Итого прямые расходы",
-        "Timesheets",
-        "CATI/Онлайн панель overheads",
-        "Корректировка",
-        "Итого операционные расходы",
-        # старые summary-колонки тоже оставляем
         "Сумма 'Реализация без НДС'",
         "Сумма 'Total Direct Costs'",
         "Сумма 'Total Operating Costs'",
-        "Operation Profit"
+        "Operation Profit",
+        "YTD",
+        "Бюджет - таргет",
+        "Q1RF",
+        "Q2RF",
+        "Q3RF",
+        "X-charge",
     ]
 
     # между # и ##0 тут — НЕРАЗРЫВНЫЙ ПРОБЕЛ (U+00A0)
