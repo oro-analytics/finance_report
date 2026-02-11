@@ -78,11 +78,18 @@ def extract_df_with_combined_header(df2):
     header_1 = df2.iloc[0].astype(str).str.strip()
     header_2 = df2.iloc[1].astype(str).str.strip()
 
+    # безопасное преобразование заголовка
+    def _clean_header(value):
+        if pd.isna(value):
+            return ""
+        return str(value).strip()
+
     # Объединяем заголовки: если в первой строке пусто, берём из второй
-    combined_header = [
-        h1 if h1 and h1.lower() != 'nan' else h2
-        for h1, h2 in zip(header_1, header_2)
-    ]
+    combined_header = []
+    for h1, h2 in zip(header_1, header_2):
+        h1_clean = _clean_header(h1)
+        h2_clean = _clean_header(h2)
+        combined_header.append(h1_clean if h1_clean and h1_clean.lower() != 'nan' else h2_clean)
 
     df2.columns = combined_header
     df2 = df2.iloc[2:]  # удаляем строки, которые пошли в заголовки
