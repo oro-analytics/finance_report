@@ -332,6 +332,16 @@ def write_monthly_with_highlights(
                         curr_norm = _normalize_for_compare(curr_subset)
                         prev_norm = _normalize_for_compare(prev_subset)
 
+                        # ### В некоторых файлах встречаются дубли имён колонок,
+                        # ### что может ломать прямое сравнение DataFrame.
+                        # ### Предварительно выравниваем обе матрицы.
+                        curr_norm, prev_norm = curr_norm.align(
+                            prev_norm,
+                            join='outer',
+                            axis=None,
+                            fill_value=''
+                        )
+
                         diff_df = curr_norm != prev_norm  # ### поэлементные отличия
                         changed_series = diff_df.any(axis=1)
                         changed_ids = set(changed_series[changed_series].index)
