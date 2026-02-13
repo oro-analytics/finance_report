@@ -146,14 +146,15 @@ def extract_x_charge_data(file_path: Path, target_profit_center: str):
 
         if not df2_giver.empty:
             print(f"\t Для {target_profit_center} найдены X-charge, которые надо ОТДАТЬ:")
-            print(df2_giver)
+            print(df2_giver.T.to_string())
 
         if not df2_taker.empty:
             print(f"### \t Для {target_profit_center} найдены X-charge, которые надо ДОБАВИТЬ:")
             print(df2_taker[['Profit Center', 'Компания', 'Номер контракта',
                              'Сумма контракта без НДС', 'Дата начала контракта',
                              'Дата завершения контракта'] + cols
-                             ].T)
+                             ].T.to_string()
+                  )
 
         row_with_profit_center = (
             row_with_profit_center.copy().assign(
