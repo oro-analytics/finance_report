@@ -12,8 +12,10 @@ from utils.utils import process_all_pl_files, process_all_x_charge_files, save_s
 base_directory = r'\\kantar-tns.local\Project\Финансовые_отчеты_Custom\Архив\Предыдущие периоды'
 base_directory = r'\\kantar-tns.local\Project\!Methodology\Analytics\!ORG\Финансовая отчетность'
 # base_directory = r'\\kantar-tns.local\Project\!Methodology\Analytics\!ORG\Финансовая отчетность\2025\Test'
+
+
 # Какие папки брать в анализ из base_directory
-years_to_process = [2026]  # [2024, 2025]
+years_to_process = [2025, 2026]  # [2024, 2025]
 target_pc = 'Analytics'
 
 # Обработка файлов - 'Реализация без НДС', 'Total Direct Costs', 'Total Operating Costs', Operation Profit
