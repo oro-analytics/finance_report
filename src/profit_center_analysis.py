@@ -92,10 +92,15 @@ print("Готово:", result_path)
 
 # Общий
 report_path = report_common_name
-df_all = pd.concat(
-    [row_with_profit_center_dict[k] for k in row_with_profit_center_dict],
-    ignore_index=True
-)
+prepared_xcharge_frames: list[pd.DataFrame] = []
+for month_key, df_month in row_with_profit_center_dict.items():
+    if df_month.columns.has_duplicates:
+        duplicate_columns = df_month.columns[df_month.columns.duplicated()].tolist()
+        print(f"⚠️ {month_key}: найдены дублирующиеся колонки, оставляем первое вхождение: {duplicate_columns}")
+        df_month = df_month.loc[:, ~df_month.columns.duplicated()]
+    prepared_xcharge_frames.append(df_month)
+
+df_all = pd.concat(prepared_xcharge_frames, ignore_index=True) if prepared_xcharge_frames else pd.DataFrame()
 df_summary = df_pl_summary.merge(df_all, on=['Год', 'Месяц'], how='left')
 save_summary_with_format(df_summary, report_path)
 print(report_path)
