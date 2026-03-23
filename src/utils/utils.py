@@ -266,14 +266,46 @@ def write_monthly_with_highlights(
     def _normalize_for_compare(frame: pd.DataFrame) -> pd.DataFrame:
         return frame.map(lambda value: "" if pd.isna(value) else str(value))
 
+    def _deduplicate_columns(frame: pd.DataFrame, context: str) -> pd.DataFrame:
+        if not frame.columns.has_duplicates:
+            return frame
+        duplicate_columns = frame.columns[frame.columns.duplicated()].tolist()
+        print(f"⚠️ {context}: дублирующиеся колонки удалены (оставлено первое вхождение): {duplicate_columns}")
+        return frame.loc[:, ~frame.columns.duplicated()].copy()
+
+    def _period_sort_key(raw_key: str) -> tuple[int, int, str]:
+        key = str(raw_key).strip()
+
+        # Формат "MM YYYY" (например, "02 2026")
+        match_month_year = re.fullmatch(r"(\d{1,2})\s+(\d{4})", key)
+        if match_month_year:
+            month, year = map(int, match_month_year.groups())
+            return year, month, key
+
+        # Формат "YYYY-MM" или "YYYY_MM"
+        match_year_month = re.fullmatch(r"(\d{4})[-_](\d{1,2})", key)
+        if match_year_month:
+            year, month = map(int, match_year_month.groups())
+            return year, month, key
+
+        # Формат "MM" — используем год=0 (работает для одно-годовых выгрузок)
+        if re.fullmatch(r"\d{1,2}", key):
+            return 0, int(key), key
+
+        # Запасной вариант: если внутри есть год и месяц, используем их
+        match_any = re.search(r"(\d{1,2}).*?(\d{4})", key)
+        if match_any:
+            month, year = map(int, match_any.groups())
+            return year, month, key
+
+        # Полностью текстовые ключи сортируем в конце лексикографически
+        return 9999, 99, key
+
     if not dfs_dict:
         raise ValueError("Словарь dfs_dict пуст.")
 
-    # Отсортируем ключи (если они строки с числами, можно привести к int)
-    try:
-        ordered_keys = sorted(dfs_dict.keys(), key=lambda x: int(x))
-    except ValueError:
-        ordered_keys = sorted(dfs_dict.keys())
+    # Сортировка периодов по (год, месяц), чтобы "02 2026" шёл после "12 2025"
+    ordered_keys = sorted(dfs_dict.keys(), key=_period_sort_key)
 
     # Стиль подсветки
     green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
@@ -285,7 +317,7 @@ def write_monthly_with_highlights(
 
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         for i, key in enumerate(ordered_keys):
-            df = dfs_dict[key]
+            df = _deduplicate_columns(dfs_dict[key], f"{key} (исходный DataFrame)")
             if id_col not in df.columns:
                 # raise KeyError(f'В DataFrame для {key} нет столбца "{id_col}"')
                 continue
@@ -311,6 +343,7 @@ def write_monthly_with_highlights(
                 common_ids = curr_ids_set & prev_ids
 
                 if prev_df is not None and common_ids:
+                    prev_df = _deduplicate_columns(prev_df, f"{key} (предыдущий DataFrame)")
                     common_columns = [
                         col for col in df2.columns
                         if col in prev_df.columns and col != id_col
@@ -383,6 +416,7 @@ def write_monthly_with_highlights(
 
             # Добавляем удалённые строки (из предыдущего месяца)
             if not deleted_rows_df.empty:
+                deleted_rows_df = _deduplicate_columns(deleted_rows_df, f"{key} (deleted rows)")
                 if add_flag_column:
                     deleted_rows_df.insert(0, "Новая запись?", "DELETED")
 
@@ -400,6 +434,8 @@ def write_monthly_with_highlights(
                     deleted_rows_df[column] = ""
 
                 deleted_rows_df = deleted_rows_df.loc[:, df_out.columns]
+                df_out = _deduplicate_columns(df_out, f"{key} (текущий лист перед concat)")
+                deleted_rows_df = _deduplicate_columns(deleted_rows_df, f"{key} (deleted перед concat)")
                 df_out = pd.concat([df_out, deleted_rows_df], ignore_index=True, sort=False)
 
             # Формируем список статусов в порядке строк df_out
@@ -575,4 +611,3 @@ def save_summary_with_format(df, output_path):
                     c.number_format = rub_format
 
     wb.save(output_path)
-
