@@ -28,7 +28,7 @@ row_with_profit_center_dict, giver_dict, taker_dict = process_all_x_charge_files
 # print(row_with_profit_center_dict)
 
 # report_common_name
-report_common_name = REPORT_PATH % f"[{','.join([str(x) for x in years_to_process])}]"
+report_common_name = REPORT_PATH % f"({','.join([str(x) for x in years_to_process])})"
 
 # PL projects id
 if pl_projects_dict:
